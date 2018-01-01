@@ -3,7 +3,7 @@ Fork goals:
    Adding state and inter-thread queue to callback parameters so callback can be GIL-free JIT-compiled.
    
 Fork secondary goals:
-   Unify api to a single callback registration with variable inputs/outputs. Philosophy is that playing/recording a 1-shot buffer should be managed by user-code outside the driver.
+   Unify api to a single callback registration with variable inputs/outputs to make core driver lean. Move 1-shot play/record functionality into optional layer on top.
 
 Play and Record Sound with Python
 =================================
