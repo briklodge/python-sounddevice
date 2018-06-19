@@ -639,7 +639,7 @@ class _StreamBase(object):
                  prime_output_buffers_using_stream_callback=None,
                  userdata=None, wrap_callback=None):
         assert kind in ('input', 'output', 'duplex')
-        assert wrap_callback in ('array', 'buffer', None)
+        assert wrap_callback in ('array', 'buffer', 'numba', 'cfunc', None)
         if blocksize is None:
             blocksize = default.blocksize
         if clip_off is None:
@@ -705,7 +705,7 @@ class _StreamBase(object):
             @ffi_callback
             def callback_ptr(iptr, optr, frames, time, status, _):
                 data = _buffer(iptr, frames, self._channels, self._samplesize)
-                return _wrap_callback(callback, data, frames, time, status)
+                return _wrap_callback(callback, data, frames, time, CallbackFlags(status))
 
         elif kind == 'input' and wrap_callback == 'array':
 
@@ -714,14 +714,14 @@ class _StreamBase(object):
                 data = _array(
                     _buffer(iptr, frames, self._channels, self._samplesize),
                     self._channels, self._dtype)
-                return _wrap_callback(callback, data, frames, time, status)
+                return _wrap_callback(callback, data, frames, time, CallbackFlags(status))
 
         elif kind == 'output' and wrap_callback == 'buffer':
 
             @ffi_callback
             def callback_ptr(iptr, optr, frames, time, status, _):
                 data = _buffer(optr, frames, self._channels, self._samplesize)
-                return _wrap_callback(callback, data, frames, time, status)
+                return _wrap_callback(callback, data, frames, time, CallbackFlags(status))
 
         elif kind == 'output' and wrap_callback == 'array':
 
@@ -730,7 +730,7 @@ class _StreamBase(object):
                 data = _array(
                     _buffer(optr, frames, self._channels, self._samplesize),
                     self._channels, self._dtype)
-                return _wrap_callback(callback, data, frames, time, status)
+                return _wrap_callback(callback, data, frames, time, CallbackFlags(status))
 
         elif kind == 'duplex' and wrap_callback == 'buffer':
 
@@ -741,7 +741,7 @@ class _StreamBase(object):
                 idata = _buffer(iptr, frames, ichannels, isize)
                 odata = _buffer(optr, frames, ochannels, osize)
                 return _wrap_callback(
-                    callback, idata, odata, frames, time, status)
+                    callback, idata, odata, frames, time, CallbackFlags(status))
 
         elif kind == 'duplex' and wrap_callback == 'array':
 
@@ -755,20 +755,42 @@ class _StreamBase(object):
                 odata = _array(_buffer(optr, frames, ochannels, osize),
                                ochannels, odtype)
                 return _wrap_callback(
-                    callback, idata, odata, frames, time, status)
+                    callback, idata, odata, frames, time, CallbackFlags(status))
 
+        elif kind == 'duplex' and wrap_callback == 'numba':
+
+            @ffi_callback
+            def callback_ptr(iptr, optr, frames, time, status, userdata):
+                ichannels, ochannels = self._channels
+                idtype, odtype = self._dtype
+                isize, osize = self._samplesize
+                idata = _array(_buffer(iptr, frames, ichannels, isize),
+                               ichannels, idtype)
+                odata = _array(_buffer(optr, frames, ochannels, osize),
+                               ochannels, odtype)
+                udata = _ffi.from_handle(userdata)
+                return _wrap_callback(
+                    callback, idata, odata, frames, status, udata)
+
+        elif kind == 'duplex' and wrap_callback == 'cfunc':
+            callback_ptr = callback
         else:
             # Use cast() to allow CData from different FFI instance:
             callback_ptr = _ffi.cast('PaStreamCallback*', callback)
 
         # CFFI callback object must be kept alive during stream lifetime:
         self._callback = callback_ptr
+        # CFFI handles must be kept alive as well
         if userdata is None:
-            userdata = _ffi.NULL
+            self._userdata = _ffi.NULL
+        elif wrap_callback == 'cfunc':
+            self._userdata = _ffi.from_buffer(userdata)
+        else:
+            self._userdata = _ffi.new_handle(userdata)
         self._ptr = _ffi.new('PaStream**')
         _check(_lib.Pa_OpenStream(self._ptr, iparameters, oparameters,
                                   samplerate, blocksize, stream_flags,
-                                  callback_ptr, userdata),
+                                  callback_ptr, self._userdata),
                'Error opening {0}'.format(self.__class__.__name__))
 
         # dereference PaStream** --> PaStream*
@@ -1032,7 +1054,8 @@ class RawInputStream(_StreamBase):
                  device=None, channels=None, dtype=None, latency=None,
                  extra_settings=None, callback=None, finished_callback=None,
                  clip_off=None, dither_off=None, never_drop_input=None,
-                 prime_output_buffers_using_stream_callback=None):
+                 prime_output_buffers_using_stream_callback=None,
+                 userdata=None):
         """Open a "raw" input stream.
 
         This is the same as `InputStream`, except that the *callback*
@@ -1116,7 +1139,8 @@ class RawOutputStream(_StreamBase):
                  device=None, channels=None, dtype=None, latency=None,
                  extra_settings=None, callback=None, finished_callback=None,
                  clip_off=None, dither_off=None, never_drop_input=None,
-                 prime_output_buffers_using_stream_callback=None):
+                 prime_output_buffers_using_stream_callback=None,
+                 userdata=None):
         """Open a "raw" output stream.
 
         This is the same as `OutputStream`, except that the *callback*
@@ -1211,7 +1235,8 @@ class RawStream(RawInputStream, RawOutputStream):
                  device=None, channels=None, dtype=None, latency=None,
                  extra_settings=None, callback=None, finished_callback=None,
                  clip_off=None, dither_off=None, never_drop_input=None,
-                 prime_output_buffers_using_stream_callback=None):
+                 prime_output_buffers_using_stream_callback=None,
+                 userdata=None):
         """Open a "raw" input/output stream.
 
         This is the same as `Stream`, except that the *callback*
@@ -1263,7 +1288,8 @@ class InputStream(RawInputStream):
                  device=None, channels=None, dtype=None, latency=None,
                  extra_settings=None, callback=None, finished_callback=None,
                  clip_off=None, dither_off=None, never_drop_input=None,
-                 prime_output_buffers_using_stream_callback=None):
+                 prime_output_buffers_using_stream_callback=None,
+                 userdata=None):
         """Open an input stream.
 
         This has the same methods and attributes as `Stream`, except
@@ -1336,7 +1362,8 @@ class OutputStream(RawOutputStream):
                  device=None, channels=None, dtype=None, latency=None,
                  extra_settings=None, callback=None, finished_callback=None,
                  clip_off=None, dither_off=None, never_drop_input=None,
-                 prime_output_buffers_using_stream_callback=None):
+                 prime_output_buffers_using_stream_callback=None,
+                 userdata=None):
         """Open an output stream.
 
         This has the same methods and attributes as `Stream`, except
@@ -1418,7 +1445,8 @@ class Stream(InputStream, OutputStream):
                  device=None, channels=None, dtype=None, latency=None,
                  extra_settings=None, callback=None, finished_callback=None,
                  clip_off=None, dither_off=None, never_drop_input=None,
-                 prime_output_buffers_using_stream_callback=None):
+                 prime_output_buffers_using_stream_callback=None,
+                 userdata=None):
         """Open a stream for simultaneous input and output.
 
         To open an input-only or output-only stream use `InputStream` or
@@ -1651,6 +1679,103 @@ class Stream(InputStream, OutputStream):
 
         """
         _StreamBase.__init__(self, kind='duplex', wrap_callback='array',
+                             **_remove_self(locals()))
+
+
+class NumbaStream(InputStream, OutputStream):
+    """Stream for input and output.  See __init__()."""
+
+    def __init__(self, samplerate=None, blocksize=None,
+                 device=None, channels=None, dtype=None, latency=None,
+                 extra_settings=None, callback=None, finished_callback=None,
+                 clip_off=None, dither_off=None, never_drop_input=None,
+                 prime_output_buffers_using_stream_callback=None,
+                 userdata=None):
+        """
+        When shooting for performance with smaller buffer sizes, the best
+        workflow with Stream() is registering a normal python function callback
+        pulling in a global variable for persistent state and then invoking a
+        JIT'ed inner function to do the bulk of the processing
+
+        This is because numba does not allow r/w access to globals and also
+        does not like some of the parameters passed to the callback
+
+        This stream fixes support for the userdata object, so it can be passed
+        in this constructor and then seen directly in the callback.
+        It also passes the flags as an int and omits the timestamps completely.
+
+        As a result, a JIT'ed function can be directly passed as the callback
+        assuming userdata is a jitclass or numba-understood type
+
+        Testing showed that a basic Stream(), calculating 150 sin() per sample
+        on a 2015 MacBP skips often at a buffer size of 128 samples. While this
+        version is able to achieve 16 sample buffers before seeing a similar
+        amount of time overrun skipping.
+
+        An example callback might look like this:
+
+        @jit(nopython=True, nogil=True)
+        def audiomain(iarr, oarr, frames, status, userdata):
+
+        """
+        _StreamBase.__init__(self, kind='duplex', wrap_callback='numba',
+                             **_remove_self(locals()))
+
+class CfuncStream(InputStream, OutputStream):
+    """Stream for input and output.  See __init__()."""
+
+    def __init__(self, samplerate=None, blocksize=None,
+                 device=None, channels=None, dtype=None, latency=None,
+                 extra_settings=None, callback=None, finished_callback=None,
+                 clip_off=None, dither_off=None, never_drop_input=None,
+                 prime_output_buffers_using_stream_callback=None,
+                 userdata=None):
+        """
+        This stream, following the same motivations as NumbaStream
+        (reduce callback overhead and jitter) takes it a step further
+        This offers a direct unwrapped passing of the callback to the PA API
+        Additionally, it uses CFFI's from_buffer to wrap the user data object
+
+        This enables a numba.cfunc decorated callback to be registered, and
+        something supporting the python buffer interface, such as a numpy array
+        to be the userdata.
+
+        The cfunc callback is passed the raw c arguments, and can use numba's
+        carray() to interpret the input/output buffers.
+
+        This offers the minimum amount of jitter for small buffer sizes
+
+        As a trade off, it is much less convenient to code against
+
+        This is what an example callback might look like
+
+        from numba import types, cfunc, carray
+        pa_stream_cb_spec = types.intc(
+                types.CPointer(types.float32),
+                types.CPointer(types.float32),
+                types.uint64,
+                types.CPointer(types.intc),
+                types.uint32,
+                types.CPointer(types.float32),
+        )
+        @cfunc(pa_stream_cb_spec, nopython=True, nogil=True)
+        def audiomain(inptr, outptr, frames, timeptr, status, udata):
+            iarr = carray(inptr, (frames, 2))
+            oarr = carray(outptr, (frames, 2))
+            data = carray(udata, (10))
+
+            oarr[:, :] = 0
+
+            return 0
+
+        state = np.zeros(10, dtype=np.float32)
+        sd.CfuncStream(channels = 2,
+               callback = audiomain.cffi,
+               blocksize = 16,
+               userdata = state)
+        """
+
+        _StreamBase.__init__(self, kind='duplex', wrap_callback='cfunc',
                              **_remove_self(locals()))
 
 
@@ -2503,7 +2628,6 @@ def _get_stream_parameters(kind, device, channels, dtype, latency,
 
 def _wrap_callback(callback, *args):
     """Invoke callback function and check for custom exceptions."""
-    args = args[:-1] + (CallbackFlags(args[-1]),)
     try:
         callback(*args)
     except CallbackStop:
