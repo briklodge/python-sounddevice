@@ -1,9 +1,7 @@
 
-Fork goals:  
-   Adding state and inter-thread queue to callback parameters so callback can be GIL-free JIT-compiled.
-   
-Fork secondary goals:
-   Unify api to a single callback registration with variable inputs/outputs to make core driver lean. Move 1-shot play/record functionality into optional layer on top.
+2018 Jun 18 - Created fast-path hooks for numba-compiled callbacks to enable
+best possible performance of audio callbacks written in python.
+
 
 Play and Record Sound with Python
 =================================
