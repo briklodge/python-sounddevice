@@ -2,6 +2,10 @@
 2018 Jun 18 - Created fast-path hooks for numba-compiled callbacks to enable
 best possible performance of audio callbacks written in python.
 
+TODO
+Still trying to work out how to use numba jitclass as userdata for the unwrapped callback.
+Guage interest for future PR
+Consider cleaner ways to hook in new features
 
 Play and Record Sound with Python
 =================================
