@@ -2,13 +2,9 @@
 2018 Jun 18 - Created fast-path hooks for numba-compiled callbacks to enable
 best possible performance of audio callbacks written in python.
 
-TODO
+2018 Jun 24 - Decided it's non trivial to use jitclasses for this. Realized even numpy's frombuffer allocates new memory, as such is very weak for stable real-time loops. E.g. alt-tabbing causes audio glitches, presumably due to contention for malloc.
 
-Still trying to work out how to use numba jitclass as userdata for the unwrapped callback.
-
-Guage interest for future PR
-
-Consider cleaner ways to hook in new features
+2018 Jun 30 - Discovered cling and cling jupyter kernel. Covers main reasons I wanted to use python (OOP, interactive, in-context audio dev) can explicitly avoid malloc, can do 1-sample callbacks with no window manager inducable gliches. Abandoning this fork.
 
 Play and Record Sound with Python
 =================================
